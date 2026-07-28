@@ -31,13 +31,18 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <header className="bg-white dark:bg-slate-800 shadow-sm">
-          <div className="px-6 py-4">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-              💰 Controle Financeiro
-            </h1>
-            <p className="text-gray-600 dark:text-gray-300 mt-1">
-              Gerencie despesas e investimentos você e sua namorada
-            </p>
+          <div className="px-6 py-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-pink-500 flex items-center justify-center text-white font-bold text-sm shrink-0">
+              A&H
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                A&H Finanças
+              </h1>
+              <p className="text-gray-600 dark:text-gray-300 mt-1">
+                Controle financeiro do casal
+              </p>
+            </div>
           </div>
         </header>
 
