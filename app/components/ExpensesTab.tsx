@@ -44,6 +44,12 @@ export default function ExpensesTab({ users }: { users: User[] }) {
     loadExpenses();
   }, [month, year]);
 
+  useEffect(() => {
+    if (!formData.userId && users[0]?.id) {
+      setFormData((prev) => ({ ...prev, userId: users[0].id }));
+    }
+  }, [users]);
+
   const loadCategories = async () => {
     try {
       const res = await fetch('/api/categories');

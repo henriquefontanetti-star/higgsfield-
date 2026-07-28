@@ -38,6 +38,12 @@ export default function InvestmentsTab({ users }: { users: User[] }) {
     loadInvestments();
   }, []);
 
+  useEffect(() => {
+    if (!formData.userId && users[0]?.id) {
+      setFormData((prev) => ({ ...prev, userId: users[0].id }));
+    }
+  }, [users]);
+
   const loadInvestments = async () => {
     setLoading(true);
     try {
