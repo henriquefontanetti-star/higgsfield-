@@ -1,41 +1,26 @@
-import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/app/lib/prisma';
-
-export async function POST(request: NextRequest) {
-  try {
-    const { name, icon, color } = await request.json();
-
-    const category = await prisma.category.create({
-      data: {
-        name,
-        icon: icon || '📁',
-        color: color || '#6b7280',
-      },
-    });
-
-    return NextResponse.json(category, { status: 201 });
-  } catch (error: any) {
-    if (error.code === 'P2002') {
-      return NextResponse.json(
-        { error: 'Categoria já existe' },
-        { status: 400 }
-      );
-    }
-    return NextResponse.json(
-      { error: 'Erro ao criar categoria' },
-      { status: 500 }
-    );
-  }
-}
+import { NextResponse } from "next/server";
+import { prisma } from "@/app/lib/prisma";
+import { requireSession } from "@/app/lib/api-auth";
 
 export async function GET() {
-  try {
-    const categories = await prisma.category.findMany();
-    return NextResponse.json(categories);
-  } catch (error) {
-    return NextResponse.json(
-      { error: 'Erro ao buscar categorias' },
-      { status: 500 }
-    );
-  }
+  const { session, response } = await requireSession();
+  if (!session) return response;
+
+  const categories = await prisma.serviceCategory.findMany({
+    where: { active: true },
+    orderBy: [{ order: "asc" }, { name: "asc" }],
+  });
+  return NextResponse.json(categories);
+}
+
+export async function POST(request: Request) {
+  const { session, response } = await requireSession(["PROPRIETARIO", "GESTOR"]);
+  if (!session) return response;
+
+  const body = await request.json().catch(() => null);
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  if (!name) return NextResponse.json({ error: "Nome é obrigatório" }, { status: 400 });
+
+  const category = await prisma.serviceCategory.create({ data: { name } });
+  return NextResponse.json(category, { status: 201 });
 }

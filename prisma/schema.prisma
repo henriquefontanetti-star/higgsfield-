@@ -1,3 +1,9 @@
+// HG Motors - Sistema Operacional Interno
+// Domínio: Ordem de Serviço (OS) como núcleo do sistema.
+// Todas as etapas do fluxo (cliente -> OS -> serviços -> status -> orçamento ->
+// execução -> qualidade -> entrega -> pagamento) geram dados estruturados que
+// alimentam o dashboard de indicadores. Ver .claude/CLAUDE.md para detalhes.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,54 +13,246 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ---------------------------------------------------------------------------
+// Pessoas
+// ---------------------------------------------------------------------------
+
+// Usuário do sistema (proprietário, gestor/Denner ou funcionário da equipe
+// técnica). Também representa o "funcionário" para fins de atribuição de
+// serviços e produtividade.
 model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String // PROPRIETARIO | GESTOR | FUNCIONARIO
+  position     String? // função/cargo (ex: Retificador, Atendente)
+  skills       String? // competências / serviços que pode executar (texto livre curto)
+  active       Boolean  @default(true)
+  hiredAt      DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  attendedOrders       ServiceOrder[]      @relation("AttendedBy")
+  serviceItems         ServiceItem[]       @relation("ServiceResponsible")
+  statusChanges        StatusHistory[]     @relation("StatusChangedBy")
+  photosUploaded       Photo[]             @relation("PhotoUploadedBy")
+  reworksReported      Rework[]            @relation("ReworkResponsible")
+  interventionsHandled OwnerIntervention[] @relation("InterventionResolvedBy")
+  auditLogs            AuditLog[]          @relation("AuditActor")
+
+  @@index([role])
+}
+
+// Cliente (pessoa física, oficina, loja, parceiro, etc.)
+model Client {
   id        String   @id @default(cuid())
   name      String
-  email     String   @unique
-  color     String   @default("#3b82f6")
+  phone     String
+  whatsapp  String?
+  document  String? // CPF/CNPJ (opcional)
+  city      String?
+  type      String   @default("PESSOA_FISICA") // PESSOA_FISICA | OFICINA | LOJA | PARCEIRO | OUTRO
+  origin    String? // indicacao | google | instagram | whatsapp | oficina_parceira | cliente_antigo | outro
   createdAt DateTime @default(now())
 
-  expenses    Expense[]
-  investments Investment[]
+  orders ServiceOrder[]
+
+  @@index([name])
+  @@index([phone])
 }
 
-model Category {
-  id   String @id @default(cuid())
-  name String @unique
-  icon String @default("📁")
-  color String @default("#6b7280")
+// ---------------------------------------------------------------------------
+// Catálogo
+// ---------------------------------------------------------------------------
 
-  expenses Expense[]
+model ServiceCategory {
+  id     String  @id @default(cuid())
+  name   String  @unique
+  active Boolean @default(true)
+  order  Int     @default(0)
+
+  services ServiceItem[]
 }
 
-model Expense {
-  id        String   @id @default(cuid())
-  amount    Float
-  title     String
-  date      DateTime
+// ---------------------------------------------------------------------------
+// Ordem de Serviço (núcleo do sistema)
+// ---------------------------------------------------------------------------
+
+model ServiceOrder {
+  id Int @id @default(autoincrement()) // número da OS (ex: exibido como "OS-000123")
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Dados do motor
+  motorBrand        String?
+  motorModel        String?
+  motorYear         String?
+  motorDisplacement String? // cilindrada
+  motorType         String?
+  motorSerial       String? // identificação/número do motor
+  motorMileage      String? // quilometragem, quando informada
+
+  // Dados da OS
+  entryDate            DateTime  @default(now())
+  expectedDeliveryDate DateTime?
+  origin               String? // indicacao | google | instagram | whatsapp | oficina_parceira | cliente_antigo | outro
+  attendedById         String?
+  attendedBy           User?     @relation("AttendedBy", fields: [attendedById], references: [id])
+  notes                String?
+
+  status   String @default("ENTRADA")
+  priority String @default("NORMAL") // BAIXA | NORMAL | ALTA | URGENTE
+
+  // Orçamento (o valor orçado é a soma dos ServiceItem.value; aqui ficam
+  // apenas os campos que não podem ser derivados)
+  discount         Float     @default(0)
+  budgetStatus     String    @default("RASCUNHO") // RASCUNHO | ENVIADO | APROVADO | RECUSADO | EXPIRADO
+  budgetSentAt     DateTime?
+  budgetApprovedAt DateTime?
+  budgetNotes      String?
+
+  // Execução
+  executionStartedAt DateTime?
+  executionEndedAt   DateTime?
+  qualityCheckedAt   DateTime?
+  deliveredAt        DateTime?
+
+  // Financeiro
+  paymentMethod String? // PIX | DINHEIRO | CARTAO_CREDITO | CARTAO_DEBITO | TRANSFERENCIA | FATURADO_OFICINA | OUTRO
+  paymentStatus String  @default("PENDENTE") // PENDENTE | PARCIAL | PAGO
+  paymentDate   DateTime?
+
+  isCanceled Boolean @default(false)
+  isBlocked  Boolean @default(false)
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  categoryId String
-  category   Category @relation(fields: [categoryId], references: [id])
+  services      ServiceItem[]
+  statusHistory StatusHistory[]
+  photos        Photo[]
+  reworks       Rework[]
+  interventions OwnerIntervention[]
 
-  @@index([userId])
+  @@index([status])
+  @@index([clientId])
+  @@index([entryDate])
+  @@index([expectedDeliveryDate])
+}
+
+// Serviço individual dentro de uma OS (uma OS pode ter vários)
+model ServiceItem {
+  id            String    @id @default(cuid())
+  orderId       Int
+  order         ServiceOrder    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  categoryId    String
+  category      ServiceCategory @relation(fields: [categoryId], references: [id])
+  description   String?
+  value         Float     @default(0)
+  responsibleId String?
+  responsible   User?     @relation("ServiceResponsible", fields: [responsibleId], references: [id])
+  priority      String    @default("NORMAL")
+  deadline      DateTime?
+  status        String    @default("PENDENTE") // PENDENTE | EM_ANDAMENTO | CONCLUIDO
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([orderId])
+  @@index([responsibleId])
   @@index([categoryId])
-  @@index([date])
 }
 
-model Investment {
+// Timeline automática da OS
+model StatusHistory {
+  id          String       @id @default(cuid())
+  orderId     Int
+  order       ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus  String?
+  toStatus    String
+  note        String?
+  changedById String?
+  changedBy   User?        @relation("StatusChangedBy", fields: [changedById], references: [id])
+  changedAt   DateTime     @default(now())
+
+  @@index([orderId])
+}
+
+// Fotos anexadas à OS, classificadas por etapa
+model Photo {
+  id           String       @id @default(cuid())
+  orderId      Int
+  order        ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  url          String
+  category     String // entrada | peca | medicao | execucao | problema | conclusao | entrega
+  uploadedById String?
+  uploadedBy   User?        @relation("PhotoUploadedBy", fields: [uploadedById], references: [id])
+  createdAt    DateTime     @default(now())
+
+  @@index([orderId])
+}
+
+// Registro de retrabalho (alimenta a taxa de retrabalho)
+model Rework {
+  id            String       @id @default(cuid())
+  orderId       Int
+  order         ServiceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reason        String
+  responsibleId String?
+  responsible   User?        @relation("ReworkResponsible", fields: [responsibleId], references: [id])
+  estimatedCost Float?
+  notes         String?
+  occurredAt    DateTime     @default(now())
+
+  @@index([orderId])
+}
+
+// "Intervenções do Proprietário" - dependência do proprietário
+model OwnerIntervention {
+  id           String        @id @default(cuid())
+  orderId      Int?
+  order        ServiceOrder? @relation(fields: [orderId], references: [id])
+  category     String
+  description  String
+  solution     String?
+  resolvedById String?
+  resolvedBy   User?         @relation("InterventionResolvedBy", fields: [resolvedById], references: [id])
+  occurredAt   DateTime      @default(now())
+
+  @@index([orderId])
+  @@index([occurredAt])
+}
+
+// Metas mensais para comparação com o realizado
+model Goal {
+  id                 String @id @default(cuid())
+  month              Int
+  year               Int
+  revenueTarget      Float?
+  ordersTarget       Int?
+  avgTicketTarget    Float?
+  conversionTarget   Float? // 0-1
+  maxReworkRate      Float? // 0-1
+  maxAvgDeadlineDays Float?
+
+  @@unique([month, year])
+}
+
+// Auditoria de alterações sensíveis (valor, prazo, status, responsável,
+// cancelamento, aprovação, pagamento)
+model AuditLog {
   id        String   @id @default(cuid())
-  name      String
-  amount    Float
-  type      String
-  date      DateTime
-  notes     String?
+  entity    String // "ServiceOrder" | "ServiceItem" | ...
+  entityId  String
+  field     String
+  oldValue  String?
+  newValue  String?
+  action    String // STATUS_CHANGE | VALUE_CHANGE | DEADLINE_CHANGE | RESPONSIBLE_CHANGE | CANCELLATION | APPROVAL | PAYMENT | REWORK | OTHER
+  actorId   String?
+  actor     User?    @relation("AuditActor", fields: [actorId], references: [id])
   createdAt DateTime @default(now())
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
 }
